@@ -456,6 +456,7 @@ typedef struct {
 
 #define	DIR_Name			0		/* Short file name (11) */
 #define	DIR_Attr			11		/* Attribute (1) */
+#define DIR_HU68K_EXNAME	12		/* Human68k extended filename part (10) */
 #define	DIR_NTres			12		/* NT flag (1) */
 #define DIR_CrtTimeTenth	13		/* Created time sub-second (1) */
 #define	DIR_CrtTime			14		/* Created time (2) */
@@ -1751,7 +1752,7 @@ void get_fileinfo (		/* No return code */
 
 	p = fno->fname;
 	if (dp->sect) {		/* Get SFN */
-		BYTE *dir = dp->dir;
+		const BYTE *dir = dp->dir;
 
 		i = 0;
 		while (i < 11) {		/* Copy name body and extension */
@@ -1777,6 +1778,44 @@ void get_fileinfo (		/* No return code */
 		fno->ftime = LD_WORD(dir+DIR_WrtTime);		/* Time */
 	}
 	*p = 0;		/* Terminate SFN string by a \0 */
+
+	// -------------------------------------------------------------------------
+	// update FILINFO.fname for Human68k
+	// Human68K can handle filenames of (18+3) characters,
+	// but it does not use the VFAT format.
+	// -------------------------------------------------------------------------
+#if _USE_HUMAN68K_FNAME
+	p += 1;
+	const BYTE * const begin = dp->dir + DIR_HU68K_EXNAME;
+	const BYTE *end = dp->dir + DIR_HU68K_EXNAME + 10;
+	const BYTE *q = begin;
+	while (*q && q < end)
+		q++;
+	end = q;
+	if (q > begin) {
+		// move suffix to tail. (get space for extend.)
+		TCHAR *const base = p;
+		TCHAR *dot = NULL;
+		while (--p > fno->fname) {
+			if (*p == '.') {
+				dot = p;
+				// p = dot + extend + suffix
+				p += (end - begin) + (base - dot);
+				const TCHAR *s = base;
+				while (s > dot)
+					*--p = *--s;
+				p = dot;
+				break;
+			}
+		}
+		if (!dot)
+			p = base;
+		// insert/append extended part.
+		const BYTE *s = begin;
+		while (s < end)
+			*p++ = *s++;
+	}
+#endif
 
 #if _USE_LFN
 	if (fno->lfname) {

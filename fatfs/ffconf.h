@@ -5,6 +5,8 @@
 #ifndef _FFCONF
 #define _FFCONF 8051	/* Revision ID */
 
+#define _USE_HUMAN68K_FNAME     1
+
 
 /*---------------------------------------------------------------------------/
 / Functions and Buffer Configurations
@@ -89,7 +91,7 @@
 /   1    - ASCII (Valid for only non-LFN configuration) */
 
 
-#define	_USE_LFN	2		/* 0 to 3 */
+#define	_USE_LFN	0		/* 0 to 3 */
 #define	_MAX_LFN	255		/* Maximum LFN length to handle (12 to 255) */
 /* The _USE_LFN option switches the LFN feature.
 /

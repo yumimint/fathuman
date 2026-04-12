@@ -166,7 +166,11 @@ typedef struct {
 	WORD	fdate;			/* Last modified date */
 	WORD	ftime;			/* Last modified time */
 	BYTE	fattrib;		/* Attribute */
+#if _USE_HUMAN68K_FNAME
+	TCHAR	fname[23];		/* Short file name (18.3 human68k format) */
+#else
 	TCHAR	fname[13];		/* Short file name (8.3 format) */
+#endif
 #if _USE_LFN
 	TCHAR*	lfname;			/* Pointer to the LFN buffer */
 	UINT 	lfsize;			/* Size of LFN buffer in TCHAR */
