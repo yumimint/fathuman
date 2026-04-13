@@ -1606,8 +1606,14 @@ FRESULT dir_read (
 			}
 		}
 #else		/* Non LFN configuration */
+#if _USE_HUMAN68K_FNAME
+		// Allow filenames that start with a dot.
+		if (c != DDE && a != AM_LFN && (int)(a == AM_VOL) == vol)	/* Is it a valid entry? */
+			break;
+#else
 		if (c != DDE && (_FS_RPATH || c != '.') && a != AM_LFN && (int)(a == AM_VOL) == vol)	/* Is it a valid entry? */
 			break;
+#enfif
 #endif
 		res = dir_next(dp, 0);				/* Next entry */
 		if (res != FR_OK) break;
