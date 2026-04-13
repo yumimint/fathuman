@@ -26,3 +26,8 @@ fathuman
 # Floppy images
 *.xdf
 *.dim
+
+# Visual Studio
+.vs/
+*.pdb
+
