@@ -1613,7 +1613,7 @@ FRESULT dir_read (
 #else
 		if (c != DDE && (_FS_RPATH || c != '.') && a != AM_LFN && (int)(a == AM_VOL) == vol)	/* Is it a valid entry? */
 			break;
-#enfif
+#endif
 #endif
 		res = dir_next(dp, 0);				/* Next entry */
 		if (res != FR_OK) break;

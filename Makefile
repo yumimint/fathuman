@@ -14,7 +14,7 @@ endif
 
 all: fathuman
 
-fathuman: main.o fatfs/ff.o fatfs/option/cc932.o
+fathuman: main.o fatfs/ff.o
 	gcc $^ -o $@ $(LDFLAGS)
 
 %.o: %.c
