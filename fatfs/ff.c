@@ -508,25 +508,30 @@ static
 FILESEM	Files[_FS_LOCK];	/* Open object lock semaphores */
 #endif
 
+
+// #define lengthof(a) ((int)(sizeof(a)/sizeof((a)[0])))
+// #define SFN_LEN lengthof(((FILINFO*)0)->fname)
+#define SFN_LEN 32
+
 #if _USE_LFN == 0			/* No LFN feature */
-#define	DEF_NAMEBUF			BYTE sfn[12]
+#define	DEF_NAMEBUF			BYTE sfn[SFN_LEN]
 #define INIT_BUF(dobj)		(dobj).fn = sfn
 #define	FREE_BUF()
 
 #elif _USE_LFN == 1			/* LFN feature with static working buffer */
 static
 WCHAR LfnBuf[_MAX_LFN+1];
-#define	DEF_NAMEBUF			BYTE sfn[12]
+#define	DEF_NAMEBUF			BYTE sfn[SFN_LEN]
 #define INIT_BUF(dobj)		{ (dobj).fn = sfn; (dobj).lfn = LfnBuf; }
 #define	FREE_BUF()
 
 #elif _USE_LFN == 2 		/* LFN feature with dynamic working buffer on the stack */
-#define	DEF_NAMEBUF			BYTE sfn[12]; WCHAR lbuf[_MAX_LFN+1]
+#define	DEF_NAMEBUF			BYTE sfn[SFN_LEN]; WCHAR lbuf[_MAX_LFN+1]
 #define INIT_BUF(dobj)		{ (dobj).fn = sfn; (dobj).lfn = lbuf; }
 #define	FREE_BUF()
 
 #elif _USE_LFN == 3 		/* LFN feature with dynamic working buffer on the heap */
-#define	DEF_NAMEBUF			BYTE sfn[12]; WCHAR *lfn
+#define	DEF_NAMEBUF			BYTE sfn[SFN_LEN]; WCHAR *lfn
 #define INIT_BUF(dobj)		{ lfn = ff_memalloc((_MAX_LFN + 1) * 2); \
 							  if (!lfn) LEAVE_FF((dobj).fs, FR_NOT_ENOUGH_CORE); \
 							  (dobj).lfn = lfn;	(dobj).fn = sfn; }
@@ -1540,8 +1545,14 @@ FRESULT dir_find (
 //				printf("mem_cmp(%c%c%c%c%c%c%c%c.%c%c%c, %c%c%c%c%c%c%c%c.%c%c%c, 11);\n",
 //					dir[0], dir[1], dir[2], dir[3], dir[4], dir[5], dir[6], dir[7], dir[8], dir[9], dir[10],
 //					dp->fn[0], dp->fn[1], dp->fn[2], dp->fn[3], dp->fn[4], dp->fn[5], dp->fn[6], dp->fn[7], dp->fn[8], dp->fn[9], dp->fn[10]);
+#if _USE_HUMAN68K_FNAME
+		if (!(dir[DIR_Attr] & AM_VOL) && !mem_cmp(dir, dp->fn, 11) &&
+				!mem_cmp(dir + DIR_HU68K_EXNAME, dp->fn + DIR_HU68K_EXNAME, 10)) /* Is it a valid entry? */
+			break;
+#else
 		if (!(dir[DIR_Attr] & AM_VOL) && !mem_cmp(dir, dp->fn, 11)) /* Is it a valid entry? */
 			break;
+#endif	/* #if _USE_HUMAN68K_FNAME */
 #endif
 		res = dir_next(dp, 0);		/* Next entry */
 	} while (res == FR_OK);
@@ -1793,27 +1804,34 @@ void get_fileinfo (		/* No return code */
 		q++;
 	end = q;
 	if (q > begin) {
-		// move suffix to tail. (get space for extend.)
 		TCHAR *const base = p;
 		TCHAR *dot = NULL;
+		// move suffix to tail. (get space for ex_name.)
 		while (--p > fno->fname) {
 			if (*p == '.') {
 				dot = p;
-				// p = dot + extend + suffix
+				// p = dot + ex_name + suffix
 				p += (end - begin) + (base - dot);
 				const TCHAR *s = base;
 				while (s > dot)
 					*--p = *--s;
-				p = dot;
 				break;
 			}
 		}
-		if (!dot)
-			p = base;
-		// insert/append extended part.
-		const BYTE *s = begin;
-		while (s < end)
-			*p++ = *s++;
+		if (dot) {
+			// [name] + <ex_name> + [suffix]
+			const BYTE *s = begin;
+			p = dot;
+			while (s < end)
+				*p++ = *s++;
+		} else {
+			// [name] + <ex_name>
+			const BYTE *s = begin;
+			p = base - 1;
+			while (s < end)
+				*p++ = *s++;
+			*p = 0;
+		}
 	}
 #endif
 
@@ -1984,6 +2002,7 @@ FRESULT create_name (
 	for (p = *path; *p == '/' || *p == '\\'; p++) ;	/* Strip duplicated separator */
 	sfn = dp->fn;
 	mem_set(sfn, ' ', 11);
+
 	si = i = b = 0; ni = 8;
 #if _FS_RPATH
 	if (p[si] == '.') { /* Is this a dot entry? */
@@ -1998,6 +2017,55 @@ FRESULT create_name (
 		return FR_OK;
 	}
 #endif
+#if _USE_HUMAN68K_FNAME
+	mem_set(sfn + DIR_HU68K_EXNAME, 0, 10);
+	const char *const start = p;
+	for (;; p++) {
+		c = *p;
+		if (c < ' ' || c == '/')
+			break;
+	}
+	sfn[NS] = (c < ' ') ? NS_LAST : 0;
+
+	const char *end = p;
+	if (start == end) return FR_INVALID_NAME;
+
+	// find last dot
+	const char *dot = NULL;
+	while (--p > start) { /* NOT include first dot */
+		if (*p == '.') {
+			dot = p;
+			break;
+		}
+	}
+
+	// store ext(3)
+	if (dot == p && (end - p) <= 4 /* && p != start*/) {
+		char *q = sfn + 8;
+		p += 1;		// skip dot
+		while (p < end)
+			*q++ = *p++;
+		end = dot;
+	}
+
+	// store name(8)
+	p = start;
+	if ((p - end) > 18)
+		return FR_INVALID_NAME;		/* too long name*/
+	const char *pend = p + 8;
+	if (pend > end) pend = end;
+	char *q = sfn;
+	while (p < pend)
+		*q++ = *p++;
+
+	// store ex-name(10)
+	q = sfn + DIR_HU68K_EXNAME;
+	while (p < end)
+		*q++ = *p++;
+
+	*path = p;						/* Return pointer to the next segment */
+
+#else	/* #if _USE_HUMAN68K_FNAME */
 	for (;;) {
 		c = (BYTE)p[si++];
 		if (c <= ' ' || c == '/' || c == '\\') break;	/* Break on end of segment */
@@ -2046,9 +2114,10 @@ FRESULT create_name (
 	if ((b & 0x0C) == 0x04) c |= NS_BODY;	/* NT flag (Name body has only small capital) */
 
 	sfn[NS] = c;		/* Store NT flag, File name is created */
+#endif	/* #if _USE_HUMAN68K_FNAME */
 
 	return FR_OK;
-#endif
+#endif	/* #if _USE_LFN */
 }
 
 
