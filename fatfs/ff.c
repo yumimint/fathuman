@@ -508,30 +508,33 @@ static
 FILESEM	Files[_FS_LOCK];	/* Open object lock semaphores */
 #endif
 
-
-// #define lengthof(a) ((int)(sizeof(a)/sizeof((a)[0])))
-// #define SFN_LEN lengthof(((FILINFO*)0)->fname)
-#define SFN_LEN 32
+#if _USE_HUMAN68K && _USE_LFN != 0
+#error Cannot use LFN feature with HUMAN68K
+#endif
 
 #if _USE_LFN == 0			/* No LFN feature */
-#define	DEF_NAMEBUF			BYTE sfn[SFN_LEN]
+#if _USE_HUMAN68K
+#define	DEF_NAMEBUF			BYTE sfn[22]
+#else
+#define	DEF_NAMEBUF			BYTE sfn[12]
+#endif
 #define INIT_BUF(dobj)		(dobj).fn = sfn
 #define	FREE_BUF()
 
 #elif _USE_LFN == 1			/* LFN feature with static working buffer */
 static
 WCHAR LfnBuf[_MAX_LFN+1];
-#define	DEF_NAMEBUF			BYTE sfn[SFN_LEN]
+#define	DEF_NAMEBUF			BYTE sfn[12]
 #define INIT_BUF(dobj)		{ (dobj).fn = sfn; (dobj).lfn = LfnBuf; }
 #define	FREE_BUF()
 
 #elif _USE_LFN == 2 		/* LFN feature with dynamic working buffer on the stack */
-#define	DEF_NAMEBUF			BYTE sfn[SFN_LEN]; WCHAR lbuf[_MAX_LFN+1]
+#define	DEF_NAMEBUF			BYTE sfn[12]; WCHAR lbuf[_MAX_LFN+1]
 #define INIT_BUF(dobj)		{ (dobj).fn = sfn; (dobj).lfn = lbuf; }
 #define	FREE_BUF()
 
 #elif _USE_LFN == 3 		/* LFN feature with dynamic working buffer on the heap */
-#define	DEF_NAMEBUF			BYTE sfn[SFN_LEN]; WCHAR *lfn
+#define	DEF_NAMEBUF			BYTE sfn[12]; WCHAR *lfn
 #define INIT_BUF(dobj)		{ lfn = ff_memalloc((_MAX_LFN + 1) * 2); \
 							  if (!lfn) LEAVE_FF((dobj).fs, FR_NOT_ENOUGH_CORE); \
 							  (dobj).lfn = lfn;	(dobj).fn = sfn; }
@@ -1545,14 +1548,14 @@ FRESULT dir_find (
 //				printf("mem_cmp(%c%c%c%c%c%c%c%c.%c%c%c, %c%c%c%c%c%c%c%c.%c%c%c, 11);\n",
 //					dir[0], dir[1], dir[2], dir[3], dir[4], dir[5], dir[6], dir[7], dir[8], dir[9], dir[10],
 //					dp->fn[0], dp->fn[1], dp->fn[2], dp->fn[3], dp->fn[4], dp->fn[5], dp->fn[6], dp->fn[7], dp->fn[8], dp->fn[9], dp->fn[10]);
-#if _USE_HUMAN68K_FNAME
+#if _USE_HUMAN68K
 		if (!(dir[DIR_Attr] & AM_VOL) && !mem_cmp(dir, dp->fn, 11) &&
 				!mem_cmp(dir + DIR_HU68K_EXNAME, dp->fn + DIR_HU68K_EXNAME, 10)) /* Is it a valid entry? */
 			break;
 #else
 		if (!(dir[DIR_Attr] & AM_VOL) && !mem_cmp(dir, dp->fn, 11)) /* Is it a valid entry? */
 			break;
-#endif	/* #if _USE_HUMAN68K_FNAME */
+#endif	/* #if _USE_HUMAN68K */
 #endif
 		res = dir_next(dp, 0);		/* Next entry */
 	} while (res == FR_OK);
@@ -1606,7 +1609,7 @@ FRESULT dir_read (
 			}
 		}
 #else		/* Non LFN configuration */
-#if _USE_HUMAN68K_FNAME
+#if _USE_HUMAN68K
 		// Allow filenames that start with a dot.
 		if (c != DDE && a != AM_LFN && (int)(a == AM_VOL) == vol)	/* Is it a valid entry? */
 			break;
@@ -1763,7 +1766,7 @@ void get_fileinfo (		/* No return code */
 	FILINFO* fno	 	/* Pointer to the file information to be filled */
 )
 {
-#if _USE_HUMAN68K_FNAME
+#if _USE_HUMAN68K
 // -------------------------------------------------------------------------
 // Human68K can handle filenames of (18+3) characters,
 // but it does not use the VFAT format.
@@ -2024,7 +2027,7 @@ FRESULT create_name (
 		return FR_OK;
 	}
 #endif
-#if _USE_HUMAN68K_FNAME
+#if _USE_HUMAN68K
 	mem_set(sfn + DIR_HU68K_EXNAME, 0, 10);
 	const char *const start = p;
 	for (;; p++) {
@@ -2072,7 +2075,7 @@ FRESULT create_name (
 
 	*path = p;						/* Return pointer to the next segment */
 
-#else	/* #if _USE_HUMAN68K_FNAME */
+#else	/* #if _USE_HUMAN68K */
 	for (;;) {
 		c = (BYTE)p[si++];
 		if (c <= ' ' || c == '/' || c == '\\') break;	/* Break on end of segment */
@@ -2121,7 +2124,7 @@ FRESULT create_name (
 	if ((b & 0x0C) == 0x04) c |= NS_BODY;	/* NT flag (Name body has only small capital) */
 
 	sfn[NS] = c;		/* Store NT flag, File name is created */
-#endif	/* #if _USE_HUMAN68K_FNAME */
+#endif	/* #if _USE_HUMAN68K */
 
 	return FR_OK;
 #endif	/* #if _USE_LFN */

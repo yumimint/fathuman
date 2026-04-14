@@ -5,7 +5,7 @@
 #ifndef _FFCONF
 #define _FFCONF 8051	/* Revision ID */
 
-#define _USE_HUMAN68K_FNAME     1
+#define _USE_HUMAN68K     1
 
 
 /*---------------------------------------------------------------------------/
