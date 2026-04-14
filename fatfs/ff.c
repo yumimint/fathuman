@@ -1763,13 +1763,58 @@ void get_fileinfo (		/* No return code */
 	FILINFO* fno	 	/* Pointer to the file information to be filled */
 )
 {
+#if _USE_HUMAN68K_FNAME
+// -------------------------------------------------------------------------
+// Human68K can handle filenames of (18+3) characters,
+// but it does not use the VFAT format.
+// -------------------------------------------------------------------------
+	/* Get SFN */
+	TCHAR *p = fno->fname;
+	if (dp->sect == 0) {
+		*p = 0;		/* Terminate SFN string by a \0 */
+		return;
+	}
+
+	const BYTE *const dir = dp->dir;
+	const BYTE *s = dir;
+	const BYTE *q = dir + 8;
+
+	while (q > dir && q[-1] == ' ')
+		--q;
+	while (s < q)
+		*p++ = *s++;
+
+	s = dir + DIR_HU68K_EXNAME;
+	q = s + 10;
+	while (s < q) {
+		if (*s == 0)
+			break;
+		*p++ = *s++;
+	}
+
+	s = dir + 8;
+	if (*s != ' ') {
+		*p++ = '.';
+		q = s + 3;
+		while (q > (dir + 8) && q[-1] == ' ')
+			--q;
+		while (s < q)
+			*p++ = *s++;
+	}
+	*p = 0;
+		
+	fno->fattrib = dir[DIR_Attr];				/* Attribute */
+	fno->fsize = LD_DWORD(dir+DIR_FileSize);	/* Size */
+	fno->fdate = LD_WORD(dir+DIR_WrtDate);		/* Date */
+	fno->ftime = LD_WORD(dir+DIR_WrtTime);		/* Time */
+#else
 	UINT i;
 	TCHAR *p, c;
 
 
 	p = fno->fname;
 	if (dp->sect) {		/* Get SFN */
-		const BYTE *dir = dp->dir;
+		BYTE *dir = dp->dir;
 
 		i = 0;
 		while (i < 11) {		/* Copy name body and extension */
@@ -1796,51 +1841,6 @@ void get_fileinfo (		/* No return code */
 	}
 	*p = 0;		/* Terminate SFN string by a \0 */
 
-	// -------------------------------------------------------------------------
-	// update FILINFO.fname for Human68k
-	// Human68K can handle filenames of (18+3) characters,
-	// but it does not use the VFAT format.
-	// -------------------------------------------------------------------------
-#if _USE_HUMAN68K_FNAME
-	p += 1;
-	const BYTE * const begin = dp->dir + DIR_HU68K_EXNAME;
-	const BYTE *end = dp->dir + DIR_HU68K_EXNAME + 10;
-	const BYTE *q = begin;
-	while (*q && q < end)
-		q++;
-	end = q;
-	if (q > begin) {
-		TCHAR *const base = p;
-		TCHAR *dot = NULL;
-		// move suffix to tail. (get space for ex_name.)
-		while (--p > fno->fname) {
-			if (*p == '.') {
-				dot = p;
-				// p = dot + ex_name + suffix
-				p += (end - begin) + (base - dot);
-				const TCHAR *s = base;
-				while (s > dot)
-					*--p = *--s;
-				break;
-			}
-		}
-		if (dot) {
-			// [name] + <ex_name> + [suffix]
-			const BYTE *s = begin;
-			p = dot;
-			while (s < end)
-				*p++ = *s++;
-		} else {
-			// [name] + <ex_name>
-			const BYTE *s = begin;
-			p = base - 1;
-			while (s < end)
-				*p++ = *s++;
-			*p = 0;
-		}
-	}
-#endif
-
 #if _USE_LFN
 	if (fno->lfname) {
 		WCHAR w, *lfn;
@@ -1861,6 +1861,7 @@ void get_fileinfo (		/* No return code */
 		}
 		p[i] = 0;	/* Terminate LFN string by a \0 */
 	}
+#endif
 #endif
 }
 #endif /* _FS_MINIMIZE <= 1 || _FS_RPATH >= 2*/
