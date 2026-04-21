@@ -11,7 +11,8 @@ from typing import Optional, Sequence
 
 fathuman_exe: Optional[str | Path] = None
 entry_rex = re.compile(
-    r" (\d+) (\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) (.*[^\/])$")
+    r"^[-dv].* +(\d+) (\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) (.*[^\/])$"
+)
 
 
 def fathuman(*args):
@@ -44,11 +45,13 @@ def dim_files(dim: Path, rex: Optional[re.Pattern] = None):
         if not match:
             print(f"unmatch: '{line}'", file=sys.stderr)
             continue
-        size, yy, mm, dd, hh, mm, ss = tuple(map(int, match.groups()[:7]))
+        if line[0] in "dv":  # ignore directory and volume label
+            continue
+        size, y, m, d, hh, mm, ss = tuple(map(int, match.groups()[:7]))
         name = match.group(8)
         if rex and rex.search(name) is None:
             continue
-        yield (name, size, yy, mm, dd, hh, mm, ss)
+        yield (name, size, y, m, d, hh, mm, ss)
 
 
 def get_contents(dim: Path, max_workers=8, rex: Optional[re.Pattern] = None):
@@ -111,18 +114,16 @@ def dim2onezip(
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "dim", type=Path, nargs="*",
-        help="specify disk image file"
-    )
-    parser.add_argument(
-        "--exe", type=str,
-        help="specify path to fathuman executable")
+    parser.add_argument("dim", type=Path, nargs="*", help="specify disk image file")
+    parser.add_argument("--exe", type=str, help="specify path to fathuman executable")
     parser.add_argument("--test", action="store_true")
     parser.add_argument("--rex", type=str)
     parser.add_argument(
-        "--onezip", type=Path, metavar="DEST",
-        help="The files will be combined into a single zip file.")
+        "--onezip",
+        type=Path,
+        metavar="DEST",
+        help="The files will be combined into a single zip file.",
+    )
     args = parser.parse_args()
 
     global fathuman_exe

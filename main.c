@@ -40,8 +40,17 @@ void report(const FILINFO* fno, const char* path) {
   snprintf(fnamebuf, sizeof fnamebuf, "%s%s%s", path, *path ? "/" : "",
            fno->fname);
 
-  printf("-rw-rw-rw- 1 %d %d %8lu %s %s\n", xdfst.st_uid, xdfst.st_gid,
-         fno->fsize, timebuf, fnamebuf);
+  char flags[8] = {"----rw-"};
+  if (fno->fattrib & AM_VOL) flags[0] = 'v';
+  if (fno->fattrib & 0x40) flags[0] = 'l';
+  if (fno->fattrib & AM_DIR) flags[0] = 'd';
+  if (fno->fattrib & AM_ARC) flags[1] = 'a';
+  if (fno->fattrib & AM_SYS) flags[2] = 's';
+  if (fno->fattrib & AM_HID) flags[3] = 'h';
+  if (fno->fattrib & AM_RDO) flags[5] = '-';
+  if (fno->fattrib & 0x80) flags[6] = 'x';
+
+  printf("%s %8lu %s %s\n", flags, fno->fsize, timebuf, fnamebuf);
 }
 
 DSTATUS
@@ -216,17 +225,14 @@ void scan_files(
     if (res != FR_OK || fno.fname[0] == 0)
       break; /* Break on error or end of dir */
 
-    if (fno.fattrib & AM_VOL) continue; /* Ignore volume entry */
-
-    if (strcmp(fno.fname, ".") == 0 || strcmp(fno.fname, "..") == 0)
-      continue; /* Ignore dot entry */
+    func(&fno, path);
 
     if (fno.fattrib & AM_DIR) { /* It is a directory */
+      if (strcmp(fno.fname, ".") == 0 || strcmp(fno.fname, "..") == 0)
+        continue;
       sprintf(&path[i], "%s%s", i == 0 ? "" : "/", fno.fname);
       scan_files(path, func);
       path[i] = 0;
-    } else { /* It is a file. */
-      func(&fno, path);
     }
   }
   f_closedir(&dir);
