@@ -1,3 +1,4 @@
+CC=gcc
 DEBUG=true
 LDFLAGS=
 CFLAGS=
@@ -8,17 +9,17 @@ CFLAGS+=-g
 endif
 
 ifeq ($(OS),Windows_NT)
-CFLAGS=-D_INC_TCHAR
-LDFLAGS+=-liconv
+CFLAGS=
+LDFLAGS+=-liconv -static
 endif
 
 all: fathuman
 
 fathuman: main.o fatfs/ff.o
-	gcc $^ -o $@ $(LDFLAGS)
+	$(CC) $^ -o $@ $(LDFLAGS)
 
 %.o: %.c
-	gcc -c $< -o $@ $(CFLAGS)
+	$(CC) -c $< -o $@ $(CFLAGS)
 
 clean:
-	rm -f fathuman *.o fatfs/*.o fatfs/option/*.o
+	rm -f fathuman *.o fatfs/*.o

@@ -1,286 +1,303 @@
+#include <assert.h>
+#include <errno.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <time.h>
+
 #include "fatfs/diskio.h"
 #include "fatfs/ff.h"
-#include <stdio.h>
-#include <string.h>
-#include <errno.h>
-#include <stdlib.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <sys/time.h>
-#include <time.h>
-#include <iconv.h>
 
-FILE *xdfp;
+FILE* xdfp;
 struct stat xdfst;
 int offset = 0;
-iconv_t ic;
 
-DSTATUS disk_initialize (BYTE pdrv) {
-	return 0;
+typedef void (*filinfo_callback_t)(const FILINFO* fno, const char* path);
+struct tm get_fattime(const FILINFO* fi);
+
+void report(const FILINFO* fno, const char* path) {
+  char timebuf[100];
+  struct tm t = get_fattime(fno);
+
+  // strftime(timebuf, sizeof(timebuf), "%d-%m-%Y %H:%M", &t);
+  strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", &t);
+
+  char fnamebuf[512];
+  snprintf(fnamebuf, sizeof fnamebuf, "%s%s%s", path, *path ? "/" : "",
+           fno->fname);
+
+  printf("-rw-rw-rw- 1 %d %d %8lu %s %s\n", xdfst.st_uid, xdfst.st_gid,
+         fno->fsize, timebuf, fnamebuf);
 }
-DSTATUS disk_status (BYTE pdrv) {
-	return 0;
-}
-static BYTE fake_bootsect[1024] = {
-	0x60, 0x3C, 0x90, 0x58, 0x36, 0x38, 0x49, 0x50, 0x4C, 0x33, 0x30, 0x00, 0x04, 0x01, 0x01, 0x00, /* `< X68IPL30..... */
-	0x02, 0xC0, 0x00, 0xD0, 0x04, 0xFE, 0x02, 0x00, 0x08, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, /* . . . .......... */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x20, 0x20, 0x20, 0x20, /* ...........      */
-	0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x46, 0x41, 0x54, 0x31, 0x32, 0x20, 0x20, 0x20, 0x4F, 0xFA, /*       FAT12   O  */
-	0xFF, 0xC0, 0x4D, 0xFA, 0x01, 0xB8, 0x4B, 0xFA, 0x00, 0xE0, 0x49, 0xFA, 0x00, 0xEA, 0x43, 0xFA, /*   M . K . I . C  */
-	0x01, 0x20, 0x4E, 0x94, 0x70, 0x8E, 0x4E, 0x4F, 0x7E, 0x70, 0xE1, 0x48, 0x8E, 0x40, 0x26, 0x3A, /* . N p NO~p H @&: */
-	0x01, 0x02, 0x22, 0x4E, 0x24, 0x3A, 0x01, 0x00, 0x32, 0x07, 0x4E, 0x95, 0x66, 0x28, 0x22, 0x4E, /* .."N$:..2.N f("N */
-	0x32, 0x3A, 0x00, 0xFA, 0x20, 0x49, 0x45, 0xFA, 0x01, 0x78, 0x70, 0x0A, 0x00, 0x10, 0x00, 0x20, /* 2:.  IE .xp....  */
-	0xB1, 0x0A, 0x56, 0xC8, 0xFF, 0xF8, 0x67, 0x38, 0xD2, 0xFC, 0x00, 0x20, 0x51, 0xC9, 0xFF, 0xE6, /*  .V   g8  . Q    */
-	0x45, 0xFA, 0x00, 0xE0, 0x60, 0x10, 0x45, 0xFA, 0x00, 0xFA, 0x60, 0x0A, 0x45, 0xFA, 0x01, 0x10, /* E . `.E . `.E .. */
-	0x60, 0x04, 0x45, 0xFA, 0x01, 0x28, 0x61, 0x00, 0x00, 0x94, 0x22, 0x4A, 0x4C, 0x99, 0x00, 0x06, /* `.E .(a.. "JL .. */
-	0x70, 0x23, 0x4E, 0x4F, 0x4E, 0x94, 0x32, 0x07, 0x70, 0x4F, 0x4E, 0x4F, 0x70, 0xFE, 0x4E, 0x4F, /* p#NON 2.pONOp NO */
-	0x74, 0x00, 0x34, 0x29, 0x00, 0x1A, 0xE1, 0x5A, 0xD4, 0x7A, 0x00, 0xA4, 0x84, 0xFA, 0x00, 0x9C, /* t.4).. Z z.   .  */
-	0x84, 0x7A, 0x00, 0x94, 0xE2, 0x0A, 0x64, 0x04, 0x08, 0xC2, 0x00, 0x18, 0x48, 0x42, 0x52, 0x02, /*  z.  .d.. ..HBR. */
-	0x22, 0x4E, 0x26, 0x3A, 0x00, 0x7E, 0x32, 0x07, 0x4E, 0x95, 0x34, 0x7C, 0x68, 0x00, 0x22, 0x4E, /* "N&:.~2.N 4|h."N */
-	0x0C, 0x59, 0x48, 0x55, 0x66, 0xA6, 0x54, 0x89, 0xB5, 0xD9, 0x66, 0xA6, 0x2F, 0x19, 0x20, 0x59, /* .YHUf T   f /. Y */
-	0xD1, 0xD9, 0x2F, 0x08, 0x2F, 0x11, 0x32, 0x7C, 0x67, 0xC0, 0x76, 0x40, 0xD6, 0x88, 0x4E, 0x95, /*   /./.2|g v@. N  */
-	0x22, 0x1F, 0x24, 0x1F, 0x22, 0x5F, 0x4A, 0x80, 0x66, 0x00, 0xFF, 0x7C, 0xD5, 0xC2, 0x53, 0x81, /* ".$."_J f. |  S  */
-	0x65, 0x04, 0x42, 0x1A, 0x60, 0xF8, 0x4E, 0xD1, 0x70, 0x46, 0x4E, 0x4F, 0x08, 0x00, 0x00, 0x1E, /* e.B.` N pFNO.... */
-	0x66, 0x02, 0x70, 0x00, 0x4E, 0x75, 0x70, 0x21, 0x4E, 0x4F, 0x4E, 0x75, 0x72, 0x0F, 0x70, 0x22, /* f.p.Nup!NONur.p" */
-	0x4E, 0x4F, 0x72, 0x19, 0x74, 0x0C, 0x70, 0x23, 0x4E, 0x4F, 0x61, 0x08, 0x72, 0x19, 0x74, 0x0D, /* NOr.t.p#NOa.r.t. */
-	0x70, 0x23, 0x4E, 0x4F, 0x76, 0x2C, 0x72, 0x20, 0x70, 0x20, 0x4E, 0x4F, 0x51, 0xCB, 0xFF, 0xF8, /* p#NOv,r p NOQ    */
-	0x4E, 0x75, 0x00, 0x00, 0x04, 0x00, 0x03, 0x00, 0x00, 0x06, 0x00, 0x08, 0x00, 0x1F, 0x00, 0x09, /* Nu.............. */
-	0x1A, 0x00, 0x00, 0x22, 0x00, 0x0D, 0x48, 0x75, 0x6D, 0x61, 0x6E, 0x2E, 0x73, 0x79, 0x73, 0x20, /* ..."..Human.sys  */
-	0x82, 0xAA, 0x20, 0x8C, 0xA9, 0x82, 0xC2, 0x82, 0xA9, 0x82, 0xE8, 0x82, 0xDC, 0x82, 0xB9, 0x82, /*       .     ܂     */
-	0xF1, 0x00, 0x00, 0x25, 0x00, 0x0D, 0x83, 0x66, 0x83, 0x42, 0x83, 0x58, 0x83, 0x4E, 0x82, 0xAA, /*  ..%.. f B X N   */
-	0x81, 0x40, 0x93, 0xC7, 0x82, 0xDF, 0x82, 0xDC, 0x82, 0xB9, 0x82, 0xF1, 0x00, 0x00, 0x00, 0x23, /*  @ ǂ ߂ ܂    ...#  */
-	0x00, 0x0D, 0x48, 0x75, 0x6D, 0x61, 0x6E, 0x2E, 0x73, 0x79, 0x73, 0x20, 0x82, 0xAA, 0x20, 0x89, /* ..Human.sys      */
-	0xF3, 0x82, 0xEA, 0x82, 0xC4, 0x82, 0xA2, 0x82, 0xDC, 0x82, 0xB7, 0x00, 0x00, 0x20, 0x00, 0x0D, /*     Ă   ܂  .. ..  */
-	0x48, 0x75, 0x6D, 0x61, 0x6E, 0x2E, 0x73, 0x79, 0x73, 0x20, 0x82, 0xCC, 0x20, 0x83, 0x41, 0x83, /* Human.sys     A  */
-	0x68, 0x83, 0x8C, 0x83, 0x58, 0x82, 0xAA, 0x88, 0xD9, 0x8F, 0xED, 0x82, 0xC5, 0x82, 0xB7, 0x00, /* h   X    ُ   ł  .*/
-	0x68, 0x75, 0x6D, 0x61, 0x6E, 0x20, 0x20, 0x20, 0x73, 0x79, 0x73, 0x00, 0x00, 0x00, 0x00, 0x00, /* human   sys..... */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* ................ */
+
+DSTATUS
+disk_initialize(BYTE pdrv) { return FR_OK; }
+
+DSTATUS
+disk_status(BYTE pdrv) { return FR_OK; }
+
+static const BYTE bios_parameter_block[] = {
+    // BytsPerSec: Sector size [byte] (2)
+    0x00,
+    0x04,
+    // SecPerClus: Cluster size [sector] (1)
+    0x01,
+    // RsvdSecCnt: Size of reserved area [sector] (2)
+    0x01,
+    0x00,
+    // NumFATs: Number of FAT copies (1)
+    0x02,
+    // RootEntCnt: Number of root directory entries for FAT12/16 (2)
+    0xC0,
+    0x00,
+    // TotSec16: Volume size [sector] (2)
+    0xD0,
+    0x04,
+    // Media: Media descriptor (1)
+    0xFE,
+    // FATSz16: FAT size [sector] (2)
+    0x02,
+    0x00,
+    // SecPerTrk: Track size [sector] (2)
+    0x08,
+    0x00,
+    // NumHeads: Number of heads (2)
+    0x02,
+    0x00,
+    // HiddSec: Number of special hidden sectors (4)
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    // TotSec32: Volume size [sector] (4)
+    0x00,
+    0x00,
+    0x00,
+    0x00,
 };
-DRESULT disk_read (BYTE pdrv, BYTE* buff, DWORD sector, UINT count) {
-	if(sector == 0) { // Fake boot sector here
-		memcpy(buff, fake_bootsect, 1024);
-	} else {
-		fseek(xdfp, sector * _MIN_SS + offset, SEEK_SET);
-		fread(buff, _MIN_SS, count, xdfp);
-	}
-	return 0;
-}
-DRESULT disk_write (BYTE pdrv, const BYTE* buff, DWORD sector, UINT count) {
-	return 0;
-}
-DRESULT disk_ioctl (BYTE pdrv, BYTE cmd, void* buff) {
-	return 0;
-}
 
+DRESULT
+disk_read(BYTE pdrv, BYTE* buff, DWORD sector, UINT count) {
+  fseek(xdfp, sector * _MIN_SS + offset, SEEK_SET);
+  fread(buff, _MIN_SS, count, xdfp);
 
-DWORD get_fattime (void)
-{
-	struct timeval tv;
-	gettimeofday(&tv, NULL);
+  if (sector == 0) {
+    const int BPB_BytsPerSec = 11;
+    memcpy(buff + BPB_BytsPerSec, bios_parameter_block,
+           sizeof bios_parameter_block);
+  }
 
-	struct tm *t = localtime((time_t *)&tv.tv_sec);
-	return    ((t->tm_year - 80) << 25)
-			| ((t->tm_mon + 1) << 21)
-			| (t->tm_mday << 16)
-			| (t->tm_hour << 11)
-			| (t->tm_min << 5)
-			| (t->tm_sec >> 1);
+  return 0;
 }
 
-const char *f_errstr(FRESULT r) {
-	const char *errstrs[] = {
-		"Succeeded",
-		"A hard error occurred in the low level disk I/O layer",
-		"Assertion failed",
-		"The physical drive cannot work",
-		"Could not find the file",
-		"Could not find the path",
-		"The path name format is invalid",
-		"Access denied due to prohibited access or directory full",
-		"Access denied due to prohibited access",
-		"The file/directory object is invalid",
-		"The physical drive is write protected",
-		"The logical drive number is invalid",
-		"The volume has no work area",
-		"There is no valid FAT volume",
-		"The f_mkfs() aborted due to any parameter error",
-		"Could not get a grant to access the volume within defined period",
-		"The operation is rejected according to the file sharing policy",
-		"LFN working buffer could not be allocated",
-		"Number of open files > _FS_SHARE",
-		"Given parameter is invalid",
-	};
-	if(r <= 19) return errstrs[r];
-	return "Unknown error";
+struct tm get_fattime(const FILINFO* fi) {
+  struct tm t;
+  memset(&t, 0, sizeof t);
+  t.tm_year = 80 + ((fi->fdate >> 9) & 0x7f);
+  t.tm_mon = ((fi->fdate >> 5) & 0x0f) - 1;
+  t.tm_mday = fi->fdate & 0x1f;
+  t.tm_hour = (fi->ftime >> 11) & 0x1f;
+  t.tm_min = (fi->ftime >> 5) & 0x3f;
+  t.tm_sec = (fi->ftime & 0x1f) << 1;
+  return t;
 }
 
-#define ERR_WRAP(fx) { FRESULT fr; fr = (fx); if(fr) { printf("%s:%d: Error %d calling %s: %s\n", __FILE__, __LINE__, fr, #fx, f_errstr(fr)); exit(1); } }
-
-FRESULT scan_files (
-	char* path	/* Start node to be scanned (also used as work area) */
-) {
-	FRESULT res;
-	FILINFO fno;
-	DIR dir;
-	int i;
-	char *fn;   /* This function is assuming non-Unicode cfg. */
-#if _USE_LFN
-	static char lfn[_MAX_LFN + 1];   /* Buffer to store the LFN */
-	fno.lfname = lfn;
-	fno.lfsize = sizeof lfn;
-#endif
-
-	char cbuf[256], *op = cbuf, *ip = path;
-	size_t ib = strlen(path), ob = 256;
-	iconv(ic, &ip, &ib, &op, &ob);
-	res = f_opendir(&dir, path);		       /* Open the directory */
-	if (res == FR_OK) {
-		i = strlen(path);
-		for (;;) {
-			res = f_readdir(&dir, &fno);		   /* Read a directory item */
-			if (res != FR_OK || fno.fname[0] == 0) break;  /* Break on error or end of dir */
-			if (fno.fname[0] == '.') continue;	     /* Ignore dot entry */
-#if _USE_LFN
-			fn = *fno.lfname ? fno.lfname : fno.fname;
-#else
-			fn = fno.fname;
-#endif
-			if (fno.fattrib & AM_DIR) {		    /* It is a directory */
-				sprintf(&path[i], "%s%s", i == 0 ? "" : "/", fn);
-				res = scan_files(path);
-				if (res != FR_OK) break;
-				path[i] = 0;
-			} else {				       /* It is a file. */
-				char fsizebuf[30];
-				snprintf(fsizebuf, sizeof(fsizebuf), "%lu", fno.fsize);
-				printf("%s %d %d %d ", "-rw-rw-rw-", 1, xdfst.st_uid, xdfst.st_gid);
-				int l = strlen(fsizebuf), x;
-				for(x = 0; x < 8-l; x++)
-					printf(" ");
-				struct tm t;
-				memset(&t, 1, sizeof(t));
-				t.tm_year = 80 + ((fno.fdate >> 9) & 0x7f);
-				t.tm_mon = ((fno.fdate >> 5) & 0x0f) - 1;
-				t.tm_mday = fno.fdate & 0x1f;
-				t.tm_hour = (fno.ftime >> 11) & 0x1f;
-				t.tm_min = (fno.ftime >> 5) & 0x3f;
-				t.tm_sec = (fno.ftime & 0x1f) << 1;
-				char timebuf[100];
-				strftime(timebuf, sizeof(timebuf), "%d-%m-%Y %H:%M", &t);
-				char fnamebuf[512];
-				snprintf(fnamebuf, sizeof(fnamebuf), "%s%s%s", path, *path?"/":"", fn);
-				char convbuf[512], *op = convbuf, *ip = fnamebuf;
-				memset(convbuf, 0, 512);
-				size_t inbytes = strlen(fnamebuf), outbytes = sizeof(convbuf);
-				errno = 0;
-				iconv(ic, &ip, &inbytes, &op, &outbytes);
-				iconv(ic, NULL, NULL, NULL, NULL);
-
-				printf("%s %s %s\n", fsizebuf, timebuf, convbuf);
-			}
-		}
-		f_closedir(&dir);
-	} else {
-		printf("%s (%d)\n", f_errstr(res), res);
-		exit(1);
-	}
-
-	return res;
+const char* f_errstr(FRESULT r) {
+  static const char* errstrs[] = {
+      "Succeeded",
+      "A hard error occurred in the low level disk I/O layer",
+      "Assertion failed",
+      "The physical drive cannot work",
+      "Could not find the file",
+      "Could not find the path",
+      "The path name format is invalid",
+      "Access denied due to prohibited access or directory full",
+      "Access denied due to prohibited access",
+      "The file/directory object is invalid",
+      "The physical drive is write protected",
+      "The logical drive number is invalid",
+      "The volume has no work area",
+      "There is no valid FAT volume",
+      "The f_mkfs() aborted due to any parameter error",
+      "Could not get a grant to access the volume within defined period",
+      "The operation is rejected according to the file sharing policy",
+      "LFN working buffer could not be allocated",
+      "Number of open files > _FS_SHARE",
+      "Given parameter is invalid",
+  };
+  if (r >= 19 && r < 0) return "Unknown error";
+  return errstrs[r];
 }
 
-int main (int argc, char **argv) {
-	if(argc < 3) {
-		fprintf(stderr, "Usage: %s <action> <file> [<arguments>]\n", argv[0]);
-		fprintf(stderr, "Actions:\n\tlist     - List all the files (recursively)\n\tcopyout - extract one file, specify as third argument\n");
-		return 1;
-	}
-	xdfp = fopen(argv[2], "rb");
-	if(!xdfp) {
-		fprintf(stderr, "Could not open %s: %s\n", argv[2], strerror(errno));
-		return 1;
-	}
-	unsigned char dim_head[256];
-	fread(dim_head, 256, 1, xdfp);
-	if(!strncmp(dim_head + 0xab, "DIFC HEADER", 11)) offset = 256;
-	fstat(fileno(xdfp), &xdfst);
-	FATFS fs;
+#define ERR_WRAP(fx)                                                          \
+  {                                                                           \
+    FRESULT fr;                                                               \
+    fr = (fx);                                                                \
+    if (fr) {                                                                 \
+      printf("%s:%d: Error %d calling %s: %s\n", __FILE__, __LINE__, fr, #fx, \
+             f_errstr(fr));                                                   \
+      exit(1);                                                                \
+    }                                                                         \
+  }
 
-	ERR_WRAP(f_mount(&fs, "", 1));
+/**
+ * This is a countermeasure against cases where data has been tampered with and
+ * a circular structure has been created in the directory entries. Normally,
+ * this check is unnecessary.
+ */
+bool check_visited_dir(const DIR* dp) {
+  static uint32_t* visit = NULL;
+  static int capacity = 0;
+  static int idx = 0;
+  if (dp == NULL) {
+    free(visit);
+    visit = NULL;
+    capacity = 0;
+    idx = 0;
+    return false;
+  }
 
-	ic = iconv_open("UTF-8//ignore", "Shift_JIS");
-	if(ic == (iconv_t)-1) {
-		fprintf(stderr, "Could not init iconv: %s (%d)\n", strerror(errno), errno);
-		return 1;
-	}
+  uint32_t v = (dp->clust << 16) | dp->sect;
+  for (int i = 0; i < idx; i++) {
+    if (visit[i] == v) return true;
+  }
+  if (idx == capacity) {
+    if (capacity == 0)
+      capacity = 256;
+    else
+      capacity *= 2;
+    visit = realloc(visit, sizeof(visit[0]) * capacity);
+    assert(visit);
+  }
+  visit[idx++] = v;
+  return false;
+}
 
-	if(!strcmp(argv[1], "list")) {
-		char scan_path[512];
-		strcpy(scan_path, argc >= 4 ? argv[3] : "");
-		scan_files(scan_path);
-	} else if(!strcmp(argv[1], "copyout")) {
-		if(argc < 5) {
-			fprintf(stderr, "Usage: %s copyout <imgfile> <file> <outfile>\n", argv[0]);
-			return 1;
-		}
-		FILE *f = fopen(argv[4], "wb");
-		if(!f) {
-			fprintf(stderr, "Could not open %s: %s\n", argv[3], strerror(errno));
-			return 1;
-		}
-		FIL fp;
-		FILINFO fi;
-		char namebuf[512], *op = namebuf, *ip = argv[3];
-		size_t ol = sizeof(namebuf), il = strlen(argv[3]);
-		iconv_t ic2 = iconv_open("Shift_JIS", "UTF-8");
-		iconv(ic2, &ip, &il, &op, &ol);
-		iconv_close(ic2);
-		BYTE buf[1024];
-		ERR_WRAP(f_open(&fp, namebuf, FA_READ));
-		for(;;) {
-			UINT r;
-			ERR_WRAP(f_read(&fp, buf, sizeof(buf), &r));
-			fwrite(buf, r, 1, f);
-			if(r != sizeof(buf)) break;
-		}
-		ERR_WRAP(f_close(&fp));
-		fclose(f);
-	}
-	ERR_WRAP(f_mount(NULL, "", 0));
-	fclose(xdfp);
+void scan_files(
+    char* path, /* Start node to be scanned (also used as work area) */
+    filinfo_callback_t func) {
+  FRESULT res;
+  DIR dir;
+  int i;
+  char* fn; /* This function is assuming non-Unicode cfg. */
 
-	iconv_close(ic);
+  res = f_opendir(&dir, path); /* Open the directory */
+  if (res != FR_OK) {
+    printf("%s (%d): %s\n", f_errstr(res), res, path);
+    return;
+  }
+  if (check_visited_dir(&dir)) {
+    printf("%d %d %d [%s]\n", dir.clust, dir.sect, dir.index, path);
+    f_closedir(&dir);
+    return;
+  }
 
-	return 0;
+  i = strlen(path);
+  for (;;) {
+    FILINFO fno;
+    res = f_readdir(&dir, &fno); /* Read a directory item */
+
+    if (res != FR_OK || fno.fname[0] == 0)
+      break; /* Break on error or end of dir */
+
+    if (strcmp(fno.fname, ".") == 0 || strcmp(fno.fname, "..") == 0)
+      continue; /* Ignore dot entry */
+
+    if (fno.fattrib & AM_DIR) { /* It is a directory */
+      sprintf(&path[i], "%s%s", i == 0 ? "" : "/", fno.fname);
+      scan_files(path, func);
+      path[i] = 0;
+    } else { /* It is a file. */
+      func(&fno, path);
+    }
+  }
+  f_closedir(&dir);
+}
+
+int copyout(const char* target, const char* out) {
+  int exitcode = EXIT_SUCCESS;
+  FIL fp;
+  ERR_WRAP(f_open(&fp, target, FA_READ));
+
+  FILE* f = NULL;
+  BYTE* buf = malloc(fp.fsize);
+  if (!buf) {
+    perror("malloc");
+    exitcode = EXIT_FAILURE;
+    goto bailout;
+  }
+
+  UINT r;
+  ERR_WRAP(f_read(&fp, buf, fp.fsize, &r));
+  ERR_WRAP(f_close(&fp));
+
+  f = fopen(out, "wb");
+  if (!f) {
+    perror(out);
+    exitcode = EXIT_FAILURE;
+    goto bailout;
+  }
+  if (fp.fsize > 0) {
+    if (fwrite(buf, fp.fsize, 1, f) != 1) {
+      perror("fwrite");
+      exitcode = EXIT_FAILURE;
+      goto bailout;
+    }
+  }
+
+bailout:
+  if (f) fclose(f);
+  free(buf);
+  return exitcode;
+}
+
+int main(int argc, char** argv) {
+  if (argc < 3) {
+    fprintf(stderr, "Usage: %s <action> <file> [<arguments>]\n", argv[0]);
+    fprintf(
+        stderr,
+        "Actions:\n\tlist     - List all the files (recursively)\n\tcopyout - "
+        "extract one file, specify as third argument\n");
+    return EXIT_FAILURE;
+  }
+  xdfp = fopen(argv[2], "rb");
+  if (!xdfp) {
+    perror(argv[2]);
+    return EXIT_FAILURE;
+  }
+
+  fstat(fileno(xdfp), &xdfst);
+
+  {
+    unsigned char dim_head[256];
+    fread(dim_head, 256, 1, xdfp);
+    if (!strncmp(dim_head + 0xab, "DIFC HEADER", 11)) offset = 256;
+  }
+
+  int exitcode = EXIT_SUCCESS;
+
+  FATFS fs;
+  ERR_WRAP(f_mount(&fs, "", 1));
+
+  if (!strcmp(argv[1], "list")) {
+    char scan_path[512];
+    if (argc > 4) strcpy(scan_path, argv[3]);
+    scan_files(scan_path, report);
+    check_visited_dir(NULL); /* release work memory */
+  } else if (!strcmp(argv[1], "copyout")) {
+    if (argc < 5) {
+      fprintf(stderr, "Usage: %s copyout <imgfile> <file> <outfile>\n",
+              argv[0]);
+      return EXIT_FAILURE;
+    }
+    exitcode = copyout(argv[3], argv[4]);
+  }
+
+  ERR_WRAP(f_mount(NULL, "", 0));
+  fclose(xdfp);
+
+  return exitcode;
 }
