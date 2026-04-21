@@ -11,6 +11,9 @@
 #include "fatfs/diskio.h"
 #include "fatfs/ff.h"
 
+#undef perror
+#define perror(msg) fprintf(stderr, "%s: %s\n", msg, strerror(errno))
+
 FILE* xdfp;
 struct stat xdfst;
 int offset = 0;
@@ -21,9 +24,17 @@ struct tm get_fattime(const FILINFO* fi);
 void report(const FILINFO* fno, const char* path) {
   char timebuf[100];
   struct tm t = get_fattime(fno);
+  static const char* dtfmt = "%Y-%m-%d %H:%M:%S";
 
-  // strftime(timebuf, sizeof(timebuf), "%d-%m-%Y %H:%M", &t);
-  strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", &t);
+  size_t n = strftime(timebuf, sizeof(timebuf), dtfmt, &t);
+  if (n == 0) {
+    perror("strftime");
+    fprintf(stderr, "struct tm {%d, %d, %d, %d, %d, %d}\n", t.tm_year, t.tm_mon,
+            t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
+    if (t.tm_mon < 0) t.tm_mon = 0;
+    if (t.tm_mday < 1) t.tm_mday = 1;
+    strftime(timebuf, sizeof(timebuf), dtfmt, &t);
+  }
 
   char fnamebuf[512];
   snprintf(fnamebuf, sizeof fnamebuf, "%s%s%s", path, *path ? "/" : "",
@@ -96,9 +107,11 @@ disk_read(BYTE pdrv, BYTE* buff, DWORD sector, UINT count) {
 struct tm get_fattime(const FILINFO* fi) {
   struct tm t;
   memset(&t, 0, sizeof t);
+  // yyyyyyy mmmm ddddd
   t.tm_year = 80 + ((fi->fdate >> 9) & 0x7f);
   t.tm_mon = ((fi->fdate >> 5) & 0x0f) - 1;
   t.tm_mday = fi->fdate & 0x1f;
+  // hhhhh mmmmmm sssss
   t.tm_hour = (fi->ftime >> 11) & 0x1f;
   t.tm_min = (fi->ftime >> 5) & 0x3f;
   t.tm_sec = (fi->ftime & 0x1f) << 1;
@@ -203,6 +216,8 @@ void scan_files(
     if (res != FR_OK || fno.fname[0] == 0)
       break; /* Break on error or end of dir */
 
+    if (fno.fattrib & AM_VOL) continue; /* Ignore volume entry */
+
     if (strcmp(fno.fname, ".") == 0 || strcmp(fno.fname, "..") == 0)
       continue; /* Ignore dot entry */
 
@@ -257,10 +272,10 @@ bailout:
 int main(int argc, char** argv) {
   if (argc < 3) {
     fprintf(stderr, "Usage: %s <action> <file> [<arguments>]\n", argv[0]);
-    fprintf(
-        stderr,
-        "Actions:\n\tlist     - List all the files (recursively)\n\tcopyout - "
-        "extract one file, specify as third argument\n");
+    fprintf(stderr,
+            "Actions:\n\tlist     - List all the files "
+            "(recursively)\n\tcopyout - "
+            "extract one file, specify as third argument\n");
     return EXIT_FAILURE;
   }
   xdfp = fopen(argv[2], "rb");
