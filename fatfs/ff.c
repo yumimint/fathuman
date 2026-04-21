@@ -117,7 +117,7 @@
 
 #include "ff.h"			/* Declarations of FatFs API */
 #include "diskio.h"		/* Declarations of disk I/O functions */
-
+#include <stddef.h>
 
 
 
@@ -2060,7 +2060,7 @@ FRESULT create_name (
 
 	// store name(8)
 	p = start;
-	if ((p - end) > 18)
+	if ((end - p) > 18)
 		return FR_INVALID_NAME;		/* too long name*/
 	const char *pend = p + 8;
 	if (pend > end) pend = end;
