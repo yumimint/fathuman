@@ -30,4 +30,5 @@ fathuman
 # Visual Studio
 .vs/
 *.pdb
+fatman/
 

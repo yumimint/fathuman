@@ -6,8 +6,6 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <unistd.h>
-#include <sys/time.h>
 #include <time.h>
 #include <iconv.h>
 
@@ -106,7 +104,7 @@ DRESULT disk_ioctl (BYTE pdrv, BYTE cmd, void* buff) {
 	return 0;
 }
 
-
+#if 0
 DWORD get_fattime (void)
 {
 	struct timeval tv;
@@ -120,7 +118,7 @@ DWORD get_fattime (void)
 			| (t->tm_min << 5)
 			| (t->tm_sec >> 1);
 }
-
+#endif
 const char *f_errstr(FRESULT r) {
 	const char *errstrs[] = {
 		"Succeeded",

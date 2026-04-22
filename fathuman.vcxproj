@@ -23,6 +23,7 @@
     <ProjectGuid>{5E33D6AB-27EA-7F72-19B0-236FA943163E}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <ProjectName>fatman</ProjectName>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -73,6 +74,7 @@
     </PublicIncludeDirectories>
     <AllProjectIncludesArePublic>true</AllProjectIncludesArePublic>
     <IncludePath>$(ProjectDir)win-iconv;$(PublicIncludeDirectories);$(IncludePath)</IncludePath>
+    <TargetName>fathuman</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
@@ -80,6 +82,7 @@
     </PublicIncludeDirectories>
     <AllProjectIncludesArePublic>true</AllProjectIncludesArePublic>
     <IncludePath>$(ProjectDir)win-iconv;$(PublicIncludeDirectories);$(IncludePath)</IncludePath>
+    <TargetName>fathuman</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>true</LinkIncremental>
@@ -87,6 +90,7 @@
     </PublicIncludeDirectories>
     <AllProjectIncludesArePublic>true</AllProjectIncludesArePublic>
     <IncludePath>$(ProjectDir)win-iconv;$(PublicIncludeDirectories);$(IncludePath)</IncludePath>
+    <TargetName>fathuman</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>true</LinkIncremental>
@@ -94,6 +98,7 @@
     </PublicIncludeDirectories>
     <AllProjectIncludesArePublic>true</AllProjectIncludesArePublic>
     <IncludePath>$(ProjectDir)win-iconv;$(PublicIncludeDirectories);$(IncludePath)</IncludePath>
+    <TargetName>fathuman</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -141,6 +146,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="fatfs\ff.c" />
+    <ClCompile Include="interact.c" />
     <ClCompile Include="main.c" />
     <ClCompile Include="win-iconv\win_iconv.c" />
   </ItemGroup>

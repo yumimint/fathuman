@@ -24,6 +24,9 @@
     <ClCompile Include="win-iconv\win_iconv.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="interact.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="fatfs\diskio.h">
