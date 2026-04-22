@@ -3,81 +3,58 @@ import argparse
 import re
 import subprocess
 import sys
-import tempfile
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 from typing import Optional, Sequence
 
 fathuman_exe: Optional[str | Path] = None
 entry_rex = re.compile(
-    r"^[-dv].* +(\d+) (\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) (.*[^\/])$"
+    r"^([-adhlrsvwx]+) +(\d+) (\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) (.*[^\/])$"
 )
 
 
-def fathuman(*args):
-    exe = fathuman_exe or Path(__file__).with_name("fathuman")
-    args = list(map(str, args))
-    cp = subprocess.run(
-        [exe] + list(args),
-        capture_output=True,
-        text=True,
-        encoding="cp932",
-        errors="surrogateescape",
-    )
-    if cp.stderr:
-        print(cp.stderr, file=sys.stderr)
-    if cp.returncode != 0:
-        print(cp.stdout, file=sys.stderr)
-        print([exe] + list(args), file=sys.stderr)
-        raise RuntimeError(f"fathuman exitcode={cp.returncode}")
-    return cp
-
-
-def dim_files(dim: Path, rex: Optional[re.Pattern] = None):
-    ps = fathuman("list", str(dim))
-    if ps.stdout is None:
-        return
-
-    for line in ps.stdout.splitlines():
+def dim_files(ps: subprocess.Popen, rex: Optional[re.Pattern] = None):
+    for linebytes in iter(ps.stdout.readline, b"-eol-\n"):
+        line = linebytes.decode(encoding="cp932", errors="surrogateescape")
         line = line.rstrip()
+
         match = entry_rex.search(line)
         if not match:
             print(f"unmatch: '{line}'", file=sys.stderr)
             continue
         if line[0] in "dv":  # ignore directory and volume label
             continue
-        size, y, m, d, hh, mm, ss = tuple(map(int, match.groups()[:7]))
-        name = match.group(8)
+
+        params = list(match.groups())
+        params[1:8] = list(map(int, params[1:8]))
+        # 0   1     2  3  4  5   6   7   8
+        attr, size, y, m, d, hh, mm, ss, name = params
         if rex and rex.search(name) is None:
             continue
-        yield (name, size, y, m, d, hh, mm, ss)
+        yield (name, size, attr, y, m, d, hh, mm, ss)
 
 
-def get_contents(dim: Path, max_workers=8, rex: Optional[re.Pattern] = None):
-    with tempfile.TemporaryDirectory(dir=".") as tmpdir:
+def get_contents(dim: Path, rex: Optional[re.Pattern] = None):
+    exe = fathuman_exe or Path(__file__).with_name("fathuman")
+    ps = subprocess.Popen([exe, "interact", dim], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
-        def copyout(file: tuple):
-            tmp = Path(tmpdir) / str(id(file))
-            name = file[0]
-            try:
-                fathuman("copyout", str(dim), name, tmp)
-            except Exception as e:
-                print(f"{type(e).__name__}: {e}", file=sys.stderr)
-                return
+    files = list(dim_files(ps, rex=rex))
 
-            with open(tmp, "rb") as f:
-                content = f.read()
+    for file in files:
+        name, size = file[:2]
+        ename = name.encode(encoding="cp932")
 
-            return file, content
+        ps.stdin.write(ename + b"\n")
+        ps.stdin.flush()
 
-        files = dim_files(dim, rex=rex)
+        res = ps.stdout.readline()
+        if res == b"ok\n":
+            content = ps.stdout.read(size)
+            yield file, content
+        else:
+            print("recived: ", res.rstrip(), file=sys.stderr)
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            for file in executor.map(copyout, files):
-                if file is None:
-                    continue
-                yield file
+    stdout, stderr = ps.communicate()
 
 
 def dim2zip(
@@ -85,28 +62,31 @@ def dim2zip(
     rex: Optional[re.Pattern] = None,
     dest=Optional[Path],
 ):
-    zip_path = dest or dim.with_suffix(".zip")
     contents = list(get_contents(dim, rex=rex))
-    if contents:
-        with ZipFile(str(zip_path), "w", compression=ZIP_DEFLATED) as zf:
-            for file, content in contents:
-                zi = ZipInfo(file[0], file[2:])
-                zi.compress_type = zf.compression
-                with zf.open(zi, "w") as f:
-                    f.write(content)
+    if not contents:
+        return
+    zip_path = dest or dim.with_suffix(".zip")
+    with ZipFile(str(zip_path), "w", compression=ZIP_DEFLATED) as zf:
+        for file, content in contents:
+            zi = ZipInfo(file[0], file[3:])
+            zi.compress_type = zf.compression
+            with zf.open(zi, "w") as f:
+                f.write(content)
 
 
 def dim2onezip(
-    dest: Path,
+    zip_path: Path,
     dims: Sequence[Path],
     rex: Optional[re.Pattern] = None,
 ):
-    with ZipFile(str(dest), "w", compression=ZIP_DEFLATED) as zf:
+    with ZipFile(str(zip_path), "w", compression=ZIP_DEFLATED) as zf:
         for dim in dims:
-            dir = f"{dim.stem}/"
             contents = list(get_contents(dim, rex=rex))
+            if not contents:
+                continue
+            dir = f"{dim.stem}/"
             for file, content in contents:
-                zi = ZipInfo(dir + file[0], file[2:])
+                zi = ZipInfo(dir + file[0], file[3:])
                 zi.compress_type = zf.compression
                 with zf.open(zi, "w") as f:
                     f.write(content)
@@ -135,9 +115,8 @@ def main():
 
     if args.test:
         for dim in args.dim:
-            files = dim_files(dim, rex=rex)
-            for file in files:
-                print(file)
+            for file, content in get_contents(dim, rex=rex):
+                print(file, len(content))
         return
 
     if args.onezip:

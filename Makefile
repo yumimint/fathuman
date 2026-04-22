@@ -15,11 +15,11 @@ endif
 
 all: fathuman
 
-fathuman: main.o fatfs/ff.o
+fathuman: main.o interact.o fatfs/ff.o
 	$(CC) $^ -o $@ $(LDFLAGS)
 
 %.o: %.c
 	$(CC) -c $< -o $@ $(CFLAGS)
 
 clean:
-	rm -f fathuman *.o fatfs/*.o
+	rm -f fathuman fathuman.exe *.o fatfs/*.o
