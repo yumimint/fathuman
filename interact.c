@@ -25,16 +25,6 @@ extern const char* f_errstr(FRESULT r);
 #undef perror
 #define perror(msg) fprintf(stderr, "%s: %s\n", msg, strerror(errno))
 
-#define ERR_WRAP(fx, exit)                                                    \
-  {                                                                           \
-    FRESULT fr;                                                               \
-    fr = (fx);                                                                \
-    if (fr) {                                                                 \
-      fprintf(stderr, "%s:%d: Error %d calling %s: %s\n", __FILE__, __LINE__, \
-              fr, #fx, f_errstr(fr));                                         \
-      exit;                                                                   \
-    }                                                                         \
-  }
 
 /**
  *
